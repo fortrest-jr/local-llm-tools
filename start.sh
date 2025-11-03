@@ -24,7 +24,7 @@ tmux new -d -s llama "# ВАШУ КОМАНДУ LLAMA.CPP С АРГУМЕНТО�
 
 tmux new -d -s sillytavern ~/SillyTavern/start.sh
 
-tmux new -d -s kv_cache_saver "python ~/llm-tools/kv_cache_saver.py"
+tmux new -d -s kv_cache_saver "python ~/local-llm-tools/kv_cache_saver.py"
 
 tmux attach -t kv_cache_saver
 
