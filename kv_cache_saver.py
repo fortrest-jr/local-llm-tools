@@ -190,7 +190,7 @@ def load_cache(log: logging.Logger) -> bool:
         return False
     log.info(f"Загрузка кеша из файла: {cache_file.name}")
     try:
-        payload = {"filename": str(cache_file)}
+        payload = {"filename": str(cache_file.name)}
         url = f"{LLAMA_URL}/slots/{SLOT_ID}?action=restore"
         response = requests.post(url, json=payload, timeout=300)
         if response.status_code == 200:
