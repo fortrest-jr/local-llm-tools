@@ -17,6 +17,7 @@ LLAMA_URL = os.getenv("LLAMA_URL", "http://127.0.0.1:8080")
 SAVE_DIR = Path(os.getenv("KV_SAVE_DIR", str(Path.home() / "kv_cache")))
 SAVE_INTERVAL = int(os.getenv("KV_SAVE_INTERVAL", "60"))
 MAX_FILES = int(os.getenv("KV_MAX_FILES", "10"))
+MIN_FILE_SIZE = int(os.getenv("KV_MIN_FILE_SIZE", "104857600"))  # 100 MB по умолчанию
 SLOT_ID = int(os.getenv("LLAMA_SLOT_ID", "3"))
 BASE_NAME_ENV = os.getenv("KV_BASE_NAME")
 LOG_FILE = SAVE_DIR / "kv_cache_saver.log"
@@ -229,7 +230,26 @@ def save_cache(log: logging.Logger) -> bool:
         if response.status_code != 200:
             log.error(f"Ошибка сохранения кеша: статус {response.status_code}, {response.text}")
             return False
-        log.info(f"Кеш успешно сохранен в {filename}")
+
+        # Сразу проверяем размер сохранённого файла
+        cache_file_path = SAVE_DIR / filename
+        if not cache_file_path.exists():
+            log.warning(f"Файл {filename} не найден после сохранения")
+            return False
+
+        file_size = cache_file_path.stat().st_size
+        if file_size < MIN_FILE_SIZE:
+            try:
+                cache_file_path.unlink(missing_ok=True)
+                log.warning(
+                    f"Файл кеша {filename} удален сразу после сохранения (размер {file_size} байт меньше минимального {MIN_FILE_SIZE} байт)"
+                )
+                return False
+            except Exception as e:
+                log.warning(f"Не удалось удалить файл {filename}: {e}")
+                return False
+
+        log.info(f"Кеш успешно сохранен в {filename} (размер: {file_size} байт)")
         rotate_cache_files(log)
         return True
     except Exception as e:
@@ -254,6 +274,7 @@ def main():
     logger.info(f"SAVE_DIR: {SAVE_DIR}")
     logger.info(f"SAVE_INTERVAL: {SAVE_INTERVAL} секунд")
     logger.info(f"MAX_FILES: {MAX_FILES}")
+    logger.info(f"MIN_FILE_SIZE: {MIN_FILE_SIZE} байт ({MIN_FILE_SIZE / 1048576:.2f} MB)")
     logger.info(f"SLOT_ID: {SLOT_ID}")
     logger.info(f"BASE_NAME: {get_base_name()}")
     logger.info("=" * 60)
