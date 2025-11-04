@@ -8,6 +8,7 @@ import logging
 import requests
 import threading
 import select
+import shutil
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Any, List
@@ -17,6 +18,8 @@ LLAMA_URL = os.getenv("LLAMA_URL", "http://127.0.0.1:8080")
 SAVE_DIR = Path(os.getenv("KV_SAVE_DIR", str(Path.home() / "kv_cache")))
 SAVE_INTERVAL = int(os.getenv("KV_SAVE_INTERVAL", "60"))
 MAX_FILES = int(os.getenv("KV_MAX_FILES", "10"))
+MAX_BACKUPS = int(os.getenv("KV_MAX_BACKUPS", "5"))
+BACKUP_INTERVAL = int(os.getenv("KV_BACKUP_INTERVAL", "3600"))  # 1 час по умолчанию
 MIN_FILE_SIZE = int(os.getenv("KV_MIN_FILE_SIZE", "104857600"))  # 100 MB по умолчанию
 SLOT_ID = int(os.getenv("LLAMA_SLOT_ID", "3"))
 BASE_NAME_ENV = os.getenv("KV_BASE_NAME")
@@ -38,6 +41,10 @@ def set_base_name(value: str) -> None:
 
 def get_cache_pattern() -> str:
     return _cache_pattern_var
+
+
+def get_backup_pattern() -> str:
+    return f"{get_base_name()}_*_backup.bin"
 
 
 running = True
@@ -220,6 +227,28 @@ def rotate_cache_files(log: logging.Logger):
             log.warning(f"Не удалось удалить файл {file_path.name}: {e}")
 
 
+def get_latest_backup() -> Optional[Path]:
+    backup_files = list(SAVE_DIR.glob(get_backup_pattern()))
+    if not backup_files:
+        return None
+    backup_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+    return backup_files[0]
+
+
+def rotate_backups(log: logging.Logger):
+    backup_files = list(SAVE_DIR.glob(get_backup_pattern()))
+    if len(backup_files) <= MAX_BACKUPS:
+        return
+    backup_files.sort(key=lambda x: x.stat().st_mtime)
+    files_to_delete = backup_files[:-MAX_BACKUPS]
+    for file_path in files_to_delete:
+        try:
+            file_path.unlink(missing_ok=True)
+            log.info(f"Удален старый бекап: {file_path.name}")
+        except Exception as e:
+            log.warning(f"Не удалось удалить бекап {file_path.name}: {e}")
+
+
 def save_cache(log: logging.Logger) -> bool:
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     filename = f"{get_base_name()}_{timestamp}.bin"
@@ -258,6 +287,44 @@ def save_cache(log: logging.Logger) -> bool:
         return False
 
 
+def create_backup(log: logging.Logger) -> bool:
+    """Создает бекап последнего успешного кеша, если размер отличается от последнего бекапа"""
+    latest_cache = get_latest_cache_file()
+    if latest_cache is None:
+        log.debug("Нет файлов кеша для создания бекапа")
+        return False
+
+    # Проверяем размер последнего бекапа
+    latest_backup = get_latest_backup()
+    if latest_backup is not None:
+        latest_backup_size = latest_backup.stat().st_size
+        latest_cache_size = latest_cache.stat().st_size
+        if latest_backup_size == latest_cache_size:
+            log.info(f"Бекап не создан: размер совпадает с последним бекапом ({latest_cache_size} байт)")
+            return False
+
+    # Создаем имя бекапа: добавляем "_backup" перед расширением
+    # Например: session_20241201120000.bin -> session_20241201120000_backup.bin
+    cache_stem = latest_cache.stem
+    backup_filename = f"{cache_stem}_backup.bin"
+    backup_path = SAVE_DIR / backup_filename
+
+    try:
+        shutil.copy2(latest_cache, backup_path)
+        file_size = backup_path.stat().st_size
+        log.info(f"Создан бекап: {backup_filename} (размер: {file_size} байт)")
+        rotate_backups(log)
+        return True
+    except Exception as e:
+        log.error(f"Ошибка при создании бекапа: {e}", exc_info=True)
+        if backup_path.exists():
+            try:
+                backup_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+        return False
+
+
 def signal_handler(signum: int, frame: Any) -> None:
     global running, shutdown_signals_count
     shutdown_signals_count += 1
@@ -280,6 +347,8 @@ def main():
     logger.info(f"SAVE_DIR: {SAVE_DIR}")
     logger.info(f"SAVE_INTERVAL: {SAVE_INTERVAL} секунд")
     logger.info(f"MAX_FILES: {MAX_FILES}")
+    logger.info(f"MAX_BACKUPS: {MAX_BACKUPS}")
+    logger.info(f"BACKUP_INTERVAL: {BACKUP_INTERVAL} секунд ({BACKUP_INTERVAL / 3600:.1f} часов)")
     logger.info(f"MIN_FILE_SIZE: {MIN_FILE_SIZE} байт ({MIN_FILE_SIZE / 1048576:.2f} MB)")
     logger.info(f"SLOT_ID: {SLOT_ID}")
     logger.info(f"BASE_NAME: {get_base_name()}")
@@ -294,13 +363,18 @@ def main():
         sys.exit(1)
     load_cache(logger)
     logger.info(f"Начало периодического сохранения (интервал: {SAVE_INTERVAL}с)")
+    logger.info(f"Бекапы будут создаваться раз в {BACKUP_INTERVAL}с ({BACKUP_INTERVAL / 3600:.1f} часов)")
     last_save_time = time.time()
+    last_backup_time = time.time()
     while running:
         try:
             current_time = time.time()
             if current_time - last_save_time >= SAVE_INTERVAL:
                 save_cache(logger)
                 last_save_time = current_time
+            if current_time - last_backup_time >= BACKUP_INTERVAL:
+                create_backup(logger)
+                last_backup_time = current_time
             time.sleep(1)
         except KeyboardInterrupt:
             shutdown_signals_count += 1
