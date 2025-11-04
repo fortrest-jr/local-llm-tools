@@ -44,6 +44,7 @@ running = True
 logger: Optional[logging.Logger] = None
 user_input_ready = False
 user_choice: Optional[str] = None
+shutdown_signals_count = 0
 
 
 def get_available_base_names() -> List[str]:
@@ -258,14 +259,19 @@ def save_cache(log: logging.Logger) -> bool:
 
 
 def signal_handler(signum: int, frame: Any) -> None:
-    global running
+    global running, shutdown_signals_count
+    shutdown_signals_count += 1
+    if shutdown_signals_count >= 2:
+        if logger is not None:
+            logger.warning(f"Получен второй сигнал {signum}, немедленное завершение без финального сохранения")
+        sys.exit(0)
     if logger is not None:
         logger.info(f"Получен сигнал {signum}, завершение работы...")
     running = False
 
 
 def main():
-    global logger, running
+    global logger, running, shutdown_signals_count
     choose_base_name()
     logger = setup_logging()
     logger.info("=" * 60)
@@ -297,6 +303,10 @@ def main():
                 last_save_time = current_time
             time.sleep(1)
         except KeyboardInterrupt:
+            shutdown_signals_count += 1
+            if shutdown_signals_count >= 2:
+                logger.warning("Получен второй KeyboardInterrupt, немедленное завершение без финального сохранения")
+                sys.exit(0)
             logger.info("Получен KeyboardInterrupt, завершение работы...")
             running = False
             break
