@@ -407,6 +407,9 @@ def main():
     logger.info(f"Начало периодического сохранения (интервал: {SAVE_INTERVAL}с)")
     logger.info(f"Бекапы будут создаваться раз в {BACKUP_INTERVAL}с ({BACKUP_INTERVAL / 3600:.1f} часов)")
     logger.info("Для создания бекапа вручную введите: backup <name>")
+    # Создаем бекап при запуске
+    logger.info("Создание бекапа при запуске...")
+    create_backup(logger)
     last_save_time = time.time()
     last_backup_time = time.time()
     while running:
