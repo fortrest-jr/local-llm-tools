@@ -287,6 +287,34 @@ def save_cache(log: logging.Logger) -> bool:
         return False
 
 
+def create_backup_with_postfix(log: logging.Logger, postfix: str) -> bool:
+    """Создает бекап последнего успешного кеша с указанным постфиксом"""
+    latest_cache = get_latest_cache_file()
+    if latest_cache is None:
+        log.warning("Нет файлов кеша для создания бекапа")
+        return False
+
+    # Создаем имя бекапа: добавляем постфикс перед расширением
+    # Например: session_20241201120000.bin -> session_20241201120000_{postfix}.bin
+    cache_stem = latest_cache.stem
+    backup_filename = f"{cache_stem}_{postfix}.bin"
+    backup_path = SAVE_DIR / backup_filename
+
+    try:
+        shutil.copy2(latest_cache, backup_path)
+        file_size = backup_path.stat().st_size
+        log.info(f"Создан бекап: {backup_filename} (размер: {file_size} байт)")
+        return True
+    except Exception as e:
+        log.error(f"Ошибка при создании бекапа: {e}", exc_info=True)
+        if backup_path.exists():
+            try:
+                backup_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+        return False
+
+
 def create_backup(log: logging.Logger) -> bool:
     """Создает бекап последнего успешного кеша, если размер отличается от последнего бекапа"""
     latest_cache = get_latest_cache_file()
@@ -305,24 +333,38 @@ def create_backup(log: logging.Logger) -> bool:
 
     # Создаем имя бекапа: добавляем "_backup" перед расширением
     # Например: session_20241201120000.bin -> session_20241201120000_backup.bin
-    cache_stem = latest_cache.stem
-    backup_filename = f"{cache_stem}_backup.bin"
-    backup_path = SAVE_DIR / backup_filename
+    return create_backup_with_postfix(log, "backup")
 
-    try:
-        shutil.copy2(latest_cache, backup_path)
-        file_size = backup_path.stat().st_size
-        log.info(f"Создан бекап: {backup_filename} (размер: {file_size} байт)")
-        rotate_backups(log)
-        return True
-    except Exception as e:
-        log.error(f"Ошибка при создании бекапа: {e}", exc_info=True)
-        if backup_path.exists():
-            try:
-                backup_path.unlink(missing_ok=True)
-            except Exception:
-                pass
-        return False
+
+def process_command(command: str, log: logging.Logger) -> None:
+    """Обрабатывает команды из консоли"""
+    command = command.strip()
+    if not command:
+        return
+
+    parts = command.split(None, 1)
+    cmd = parts[0].lower()
+
+    if cmd == "backup" and len(parts) > 1:
+        postfix = parts[1].strip()
+        if not postfix:
+            log.warning("Не указан постфикс для бекапа. Использование: backup <name>")
+            return
+        # Валидация постфикса (только буквы, цифры, подчеркивания и дефисы)
+        if not all(c.isalnum() or c in ('_', '-') for c in postfix):
+            log.warning("Постфикс может содержать только буквы, цифры, подчеркивания и дефисы")
+            return
+        log.info(f"Создание бекапа с постфиксом '{postfix}'...")
+        if create_backup_with_postfix(log, postfix):
+            log.info(f"Бекап успешно создан с постфиксом '{postfix}'")
+        else:
+            log.error(f"Не удалось создать бекап с постфиксом '{postfix}'")
+    elif cmd == "help":
+        log.info("Доступные команды:")
+        log.info("  backup <name> - создать бекап последнего кеша с указанным постфиксом")
+        log.info("  help - показать эту справку")
+    else:
+        log.warning(f"Неизвестная команда: {cmd}. Введите 'help' для справки")
 
 
 def signal_handler(signum: int, frame: Any) -> None:
@@ -364,10 +406,21 @@ def main():
     load_cache(logger)
     logger.info(f"Начало периодического сохранения (интервал: {SAVE_INTERVAL}с)")
     logger.info(f"Бекапы будут создаваться раз в {BACKUP_INTERVAL}с ({BACKUP_INTERVAL / 3600:.1f} часов)")
+    logger.info("Для создания бекапа вручную введите: backup <name>")
     last_save_time = time.time()
     last_backup_time = time.time()
     while running:
         try:
+            # Проверяем наличие ввода в stdin (неблокирующий режим)
+            if sys.stdin.isatty() and hasattr(select, 'select'):
+                if select.select([sys.stdin], [], [], 0)[0]:
+                    try:
+                        line = sys.stdin.readline().strip()
+                        if line:
+                            process_command(line, logger)
+                    except (EOFError, OSError):
+                        pass
+
             current_time = time.time()
             if current_time - last_save_time >= SAVE_INTERVAL:
                 save_cache(logger)
