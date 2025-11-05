@@ -199,10 +199,20 @@ def get_cache_files() -> List[Path]:
     return cache_files
 
 
-def choose_cache_file(log: logging.Logger, interactive: bool = True, timeout: Optional[float] = 10.0) -> Optional[Path]:
+def get_all_available_files() -> List[Path]:
+    """Получает список всех доступных файлов для загрузки (кеши + бекапы)"""
     cache_files = get_cache_files()
+    backup_files = list(SAVE_DIR.glob(get_backup_pattern()))
+    backup_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+    # Объединяем: сначала обычные кеши, потом бекапы
+    all_files = cache_files + backup_files
+    return all_files
 
-    if not cache_files:
+
+def choose_cache_file(log: logging.Logger, interactive: bool = True, timeout: Optional[float] = 10.0) -> Optional[Path]:
+    all_files = get_all_available_files()
+
+    if not all_files:
         if log:
             log.info(f"Файлы кеша для '{get_base_name()}' не найдены")
         else:
@@ -210,16 +220,38 @@ def choose_cache_file(log: logging.Logger, interactive: bool = True, timeout: Op
         return None
 
     if not interactive:
-        # Автоматически выбираем последний файл
-        return cache_files[0]
+        # Автоматически выбираем последний файл (обычный кеш, если есть)
+        cache_files = get_cache_files()
+        if cache_files:
+            return cache_files[0]
+        # Если нет обычных кешей, берем последний бекап
+        return all_files[0]
 
     # Интерактивный выбор
-    print(f"\nНайдено файлов кеша для '{get_base_name()}': {len(cache_files)}")
-    for i, cache_file in enumerate(cache_files, 1):
-        file_size = cache_file.stat().st_size / (1024 * 1024)  # MB
-        mtime = datetime.fromtimestamp(cache_file.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
-        print(f"  {i}. {cache_file.name} ({file_size:.2f} MB, {mtime})")
-    print(f"  {len(cache_files) + 1}. Пропустить загрузку")
+    cache_files = get_cache_files()
+    backup_files = list(SAVE_DIR.glob(get_backup_pattern()))
+    backup_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+
+    print(f"\nДоступные файлы для загрузки:")
+    file_index = 1
+
+    if cache_files:
+        print(f"\nОбычные кеши ({len(cache_files)}):")
+        for cache_file in cache_files:
+            file_size = cache_file.stat().st_size / (1024 * 1024)  # MB
+            mtime = datetime.fromtimestamp(cache_file.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+            print(f"  {file_index}. {cache_file.name} ({file_size:.2f} MB, {mtime})")
+            file_index += 1
+
+    if backup_files:
+        print(f"\nБекапы ({len(backup_files)}):")
+        for backup_file in backup_files:
+            file_size = backup_file.stat().st_size / (1024 * 1024)  # MB
+            mtime = datetime.fromtimestamp(backup_file.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+            print(f"  {file_index}. {backup_file.name} ({file_size:.2f} MB, {mtime})")
+            file_index += 1
+
+    print(f"\n  {file_index}. Пропустить загрузку")
     if timeout is not None:
         print(f"\nВыберите файл для загрузки ({int(timeout)} секунд на выбор, Enter для автовыбора последнего):")
     else:
@@ -274,22 +306,26 @@ def choose_cache_file(log: logging.Logger, interactive: bool = True, timeout: Op
     if choice == "0" or not choice:
         if cache_files:
             selected = cache_files[0]
+            print(f"\nАвтоматически выбран последний кеш: {selected.name}")
+            return selected
+        if all_files:
+            selected = all_files[0]
             print(f"\nАвтоматически выбран последний файл: {selected.name}")
             return selected
         print("\nНет доступных файлов для загрузки")
         return None
-    elif choice.isdigit() and 1 <= int(choice) <= len(cache_files):
-        selected = cache_files[int(choice) - 1]
+    elif choice.isdigit() and 1 <= int(choice) <= len(all_files):
+        selected = all_files[int(choice) - 1]
         print(f"\nВыбран файл: {selected.name}")
         return selected
-    elif choice == str(len(cache_files) + 1):
+    elif choice == str(len(all_files) + 1):
         print("\nЗагрузка пропущена")
         return None
     else:
         try:
             choice_num = int(choice)
-            if 1 <= choice_num <= len(cache_files):
-                selected = cache_files[choice_num - 1]
+            if 1 <= choice_num <= len(all_files):
+                selected = all_files[choice_num - 1]
                 print(f"\nВыбран файл: {selected.name}")
                 return selected
         except ValueError:
