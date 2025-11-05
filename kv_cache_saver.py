@@ -21,7 +21,6 @@ SAVE_INTERVAL = int(os.getenv("KV_SAVE_INTERVAL", "60"))
 MAX_FILES = int(os.getenv("KV_MAX_FILES", "10"))
 MAX_BACKUPS = int(os.getenv("KV_MAX_BACKUPS", "5"))
 BACKUP_INTERVAL = int(os.getenv("KV_BACKUP_INTERVAL", "3600"))  # 1 час по умолчанию
-MIN_FILE_SIZE = int(os.getenv("KV_MIN_FILE_SIZE", "104857600"))  # 100 MB по умолчанию
 SLOT_ID = int(os.getenv("LLAMA_SLOT_ID", "3"))
 BASE_NAME_ENV = os.getenv("KV_BASE_NAME")
 LOG_FILE = SAVE_DIR / "kv_cache_saver.log"
@@ -187,10 +186,9 @@ def wait_for_server(log: logging.Logger, max_retries: int = 30, retry_delay: int
 
 
 def get_latest_cache_file() -> Optional[Path]:
-    cache_files = list(SAVE_DIR.glob(get_cache_pattern()))
+    cache_files = get_cache_files()
     if not cache_files:
         return None
-    cache_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
     return cache_files[0]
 
 
@@ -254,7 +252,13 @@ def choose_cache_file(log: logging.Logger, interactive: bool = True, timeout: Op
                     user_choice = line
                     user_input_ready = True
                     break
+                # Если timeout=None, продолжаем ждать, но проверяем running для корректного завершения
+                if timeout is None and not running:
+                    user_choice = "0"
+                    user_input_ready = True
+                    break
         else:
+            # Для не-TTY используем input() - он блокирующий и не требует таймаута
             line = input("> ").strip()
             user_choice = line
             user_input_ready = True
@@ -268,9 +272,12 @@ def choose_cache_file(log: logging.Logger, interactive: bool = True, timeout: Op
     choice = user_choice if user_choice else "0"
 
     if choice == "0" or not choice:
-        selected = cache_files[0]
-        print(f"\nАвтоматически выбран последний файл: {selected.name}")
-        return selected
+        if cache_files:
+            selected = cache_files[0]
+            print(f"\nАвтоматически выбран последний файл: {selected.name}")
+            return selected
+        print("\nНет доступных файлов для загрузки")
+        return None
     elif choice.isdigit() and 1 <= int(choice) <= len(cache_files):
         selected = cache_files[int(choice) - 1]
         print(f"\nВыбран файл: {selected.name}")
@@ -280,12 +287,15 @@ def choose_cache_file(log: logging.Logger, interactive: bool = True, timeout: Op
         return None
     else:
         try:
-            selected = cache_files[int(choice) - 1]
-            print(f"\nВыбран файл: {selected.name}")
-            return selected
-        except (ValueError, IndexError):
-            print("\nНеверный выбор, загрузка пропущена")
-            return None
+            choice_num = int(choice)
+            if 1 <= choice_num <= len(cache_files):
+                selected = cache_files[choice_num - 1]
+                print(f"\nВыбран файл: {selected.name}")
+                return selected
+        except ValueError:
+            pass
+        print("\nНеверный выбор, загрузка пропущена")
+        return None
 
 
 def load_cache_from_file(log: logging.Logger, cache_file: Path) -> bool:
