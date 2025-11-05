@@ -9,6 +9,7 @@ import requests
 import threading
 import select
 import shutil
+import hashlib
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Any, List
@@ -44,7 +45,8 @@ def get_cache_pattern() -> str:
 
 
 def get_backup_pattern() -> str:
-    return f"{get_base_name()}_*_backup.bin"
+    """Паттерн для поиска бекапов: backup_{base_name}_*.bin"""
+    return f"backup_{get_cache_pattern()}"
 
 
 running = True
@@ -222,6 +224,8 @@ def rotate_cache_files(log: logging.Logger):
     for file_path in files_to_delete:
         try:
             file_path.unlink(missing_ok=True)
+            hash_file = file_path.with_suffix(file_path.suffix + ".hash")
+            hash_file.unlink(missing_ok=True)
             log.info(f"Удален старый файл кеша: {file_path.name}")
         except Exception as e:
             log.warning(f"Не удалось удалить файл {file_path.name}: {e}")
@@ -235,6 +239,86 @@ def get_latest_backup() -> Optional[Path]:
     return backup_files[0]
 
 
+def get_file_hash(file_path: Path) -> str:
+    """Вычисляет SHA256 хеш файла"""
+    sha256_hash = hashlib.sha256()
+    block_size = 1024 * 1024  # 1 MB
+    with open(file_path, "rb") as f:
+        # Читаем файл блоками для больших файлов
+        for byte_block in iter(lambda: f.read(block_size), b""):
+            sha256_hash.update(byte_block)
+    return sha256_hash.hexdigest()
+
+
+def get_saved_hash(file_path: Path) -> Optional[str]:
+    """Получает сохраненный хеш файла из .hash файла"""
+    hash_file = file_path.with_suffix(file_path.suffix + ".hash")
+    if hash_file.exists():
+        try:
+            return hash_file.read_text(encoding="utf-8").strip()
+        except Exception:
+            return None
+    return None
+
+
+def save_hash(file_path: Path, file_hash: str) -> None:
+    """Сохраняет хеш файла в .hash файл"""
+    hash_file = file_path.with_suffix(file_path.suffix + ".hash")
+    try:
+        hash_file.write_text(file_hash, encoding="utf-8")
+    except Exception:
+        pass
+
+
+def get_file_hash_cached(file_path: Path) -> str:
+    """Получает хеш файла, используя кеш если доступен"""
+    # Сначала пробуем получить сохраненный хеш
+    saved_hash = get_saved_hash(file_path)
+    if saved_hash:
+        return saved_hash
+
+    # Вычисляем хеш и сохраняем
+    file_hash = get_file_hash(file_path)
+    save_hash(file_path, file_hash)
+    return file_hash
+
+
+def get_slot_info(log: logging.Logger) -> Optional[dict[str, Any]]:
+    """Получает информацию о слоте через API"""
+    try:
+        url = f"{LLAMA_URL}/slots/{SLOT_ID}"
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            log.debug(f"Не удалось получить информацию о слоте: статус {response.status_code}")
+            return None
+    except Exception as e:
+        log.debug(f"Ошибка при получении информации о слоте: {e}")
+        return None
+
+
+def is_cache_valid(log: logging.Logger) -> bool:
+    """Проверяет валидность кеша через API (наличие токенов в контексте)"""
+    slot_info = get_slot_info(log)
+    if slot_info is None:
+        # Если не можем проверить через API, считаем валидным
+        return True
+
+    # Проверяем наличие токенов в контексте
+    n_ctx_used = slot_info.get("n_ctx_used", 0)
+    n_prompt_tokens = slot_info.get("n_prompt_tokens", 0)
+
+    # Считаем кеш валидным, если есть хотя бы несколько токенов в контексте
+    # или если есть промпт-токены (это означает, что есть активный контекст)
+    is_valid = n_ctx_used > 0 or n_prompt_tokens > 0
+
+    if not is_valid:
+        log.debug(f"Кеш пустой: n_ctx_used={n_ctx_used}, n_prompt_tokens={n_prompt_tokens}")
+
+    return is_valid
+
+
 def rotate_backups(log: logging.Logger):
     backup_files = list(SAVE_DIR.glob(get_backup_pattern()))
     if len(backup_files) <= MAX_BACKUPS:
@@ -244,6 +328,8 @@ def rotate_backups(log: logging.Logger):
     for file_path in files_to_delete:
         try:
             file_path.unlink(missing_ok=True)
+            hash_file = file_path.with_suffix(file_path.suffix + ".hash")
+            hash_file.unlink(missing_ok=True)
             log.info(f"Удален старый бекап: {file_path.name}")
         except Exception as e:
             log.warning(f"Не удалось удалить бекап {file_path.name}: {e}")
@@ -254,6 +340,11 @@ def save_cache(log: logging.Logger) -> bool:
     filename = f"{get_base_name()}_{timestamp}.bin"
     log.info(f"Сохранение кеша в файл: {filename}")
     try:
+        # Проверяем валидность кеша перед сохранением
+        if not is_cache_valid(log):
+            log.debug("Кеш пустой или невалидный, сохранение пропущено")
+            return False
+
         payload = {"filename": filename}
         url = f"{LLAMA_URL}/slots/{SLOT_ID}?action=save"
         response = requests.post(url, json=payload, timeout=300)
@@ -261,24 +352,13 @@ def save_cache(log: logging.Logger) -> bool:
             log.error(f"Ошибка сохранения кеша: статус {response.status_code}, {response.text}")
             return False
 
-        # Сразу проверяем размер сохранённого файла
+        # Проверяем, что файл создан
         cache_file_path = SAVE_DIR / filename
         if not cache_file_path.exists():
             log.warning(f"Файл {filename} не найден после сохранения")
             return False
 
         file_size = cache_file_path.stat().st_size
-        if file_size < MIN_FILE_SIZE:
-            try:
-                cache_file_path.unlink(missing_ok=True)
-                log.warning(
-                    f"Файл кеша {filename} удален сразу после сохранения (размер {file_size} байт меньше минимального {MIN_FILE_SIZE} байт)"
-                )
-                return False
-            except Exception as e:
-                log.warning(f"Не удалось удалить файл {filename}: {e}")
-                return False
-
         log.info(f"Кеш успешно сохранен в {filename} (размер: {file_size} байт)")
         rotate_cache_files(log)
         return True
@@ -287,22 +367,26 @@ def save_cache(log: logging.Logger) -> bool:
         return False
 
 
-def create_backup_with_postfix(log: logging.Logger, postfix: str) -> bool:
-    """Создает бекап последнего успешного кеша с указанным постфиксом"""
+def create_backup_with_name(log: logging.Logger, name: str) -> bool:
+    """Создает бекап последнего сохраненного кеша (бекапы - копии уже валидных кешей)"""
     latest_cache = get_latest_cache_file()
     if latest_cache is None:
         log.warning("Нет файлов кеша для создания бекапа")
         return False
 
-    # Создаем имя бекапа: добавляем постфикс перед расширением
-    # Например: session_20241201120000.bin -> session_20241201120000_{postfix}.bin
-    cache_stem = latest_cache.stem
-    backup_filename = f"{cache_stem}_{postfix}.bin"
+    # Берем имя кеш-файла и формируем имя: {name}_{cache_name}
+    cache_name = latest_cache.name
+    backup_filename = f"{name}_{cache_name}"
     backup_path = SAVE_DIR / backup_filename
 
     try:
         shutil.copy2(latest_cache, backup_path)
         file_size = backup_path.stat().st_size
+
+        # Вычисляем и сохраняем хеш для быстрого сравнения в будущем
+        log.debug(f"Вычисление хеша для бекапа {backup_filename}...")
+        get_file_hash_cached(backup_path)
+
         log.info(f"Создан бекап: {backup_filename} (размер: {file_size} байт)")
         return True
     except Exception as e:
@@ -316,24 +400,27 @@ def create_backup_with_postfix(log: logging.Logger, postfix: str) -> bool:
 
 
 def create_backup(log: logging.Logger) -> bool:
-    """Создает бекап последнего успешного кеша, если размер отличается от последнего бекапа"""
     latest_cache = get_latest_cache_file()
     if latest_cache is None:
         log.debug("Нет файлов кеша для создания бекапа")
         return False
 
-    # Проверяем размер последнего бекапа
     latest_backup = get_latest_backup()
     if latest_backup is not None:
-        latest_backup_size = latest_backup.stat().st_size
-        latest_cache_size = latest_cache.stat().st_size
-        if latest_backup_size == latest_cache_size:
-            log.info(f"Бекап не создан: размер совпадает с последним бекапом ({latest_cache_size} байт)")
-            return False
+        try:
+            latest_backup_hash = get_file_hash_cached(latest_backup)
+            latest_cache_hash = get_file_hash_cached(latest_cache)
+            if latest_backup_hash == latest_cache_hash:
+                log.info("Бекап не создан: содержимое совпадает с последним бекапом")
+                return False
+        except Exception as e:
+            log.debug(f"Ошибка при сравнении хешей: {e}, создаем бекап")
 
-    # Создаем имя бекапа: добавляем "_backup" перед расширением
-    # Например: session_20241201120000.bin -> session_20241201120000_backup.bin
-    return create_backup_with_postfix(log, "backup")
+    # Используем общую функцию с именем "backup"
+    if create_backup_with_name(log, "backup"):
+        rotate_backups(log)
+        return True
+    return False
 
 
 def process_command(command: str, log: logging.Logger) -> None:
@@ -346,22 +433,22 @@ def process_command(command: str, log: logging.Logger) -> None:
     cmd = parts[0].lower()
 
     if cmd == "backup" and len(parts) > 1:
-        postfix = parts[1].strip()
-        if not postfix:
-            log.warning("Не указан постфикс для бекапа. Использование: backup <name>")
+        name = parts[1].strip()
+        if not name:
+            log.warning("Не указано имя для бекапа. Использование: backup <name>")
             return
-        # Валидация постфикса (только буквы, цифры, подчеркивания и дефисы)
-        if not all(c.isalnum() or c in ('_', '-') for c in postfix):
-            log.warning("Постфикс может содержать только буквы, цифры, подчеркивания и дефисы")
+        # Валидация имени (только буквы, цифры, подчеркивания и дефисы)
+        if not all(c.isalnum() or c in ('_', '-') for c in name):
+            log.warning("Имя может содержать только буквы, цифры, подчеркивания и дефисы")
             return
-        log.info(f"Создание бекапа с постфиксом '{postfix}'...")
-        if create_backup_with_postfix(log, postfix):
-            log.info(f"Бекап успешно создан с постфиксом '{postfix}'")
+        log.info(f"Создание бекапа с именем '{name}'...")
+        if create_backup_with_name(log, name):
+            log.info(f"Бекап успешно создан с именем '{name}'")
         else:
-            log.error(f"Не удалось создать бекап с постфиксом '{postfix}'")
+            log.error(f"Не удалось создать бекап с именем '{name}'")
     elif cmd == "help":
         log.info("Доступные команды:")
-        log.info("  backup <name> - создать бекап последнего кеша с указанным постфиксом")
+        log.info("  backup <name> - создать бекап последнего кеша с указанным именем")
         log.info("  help - показать эту справку")
     else:
         log.warning(f"Неизвестная команда: {cmd}. Введите 'help' для справки")
@@ -391,7 +478,6 @@ def main():
     logger.info(f"MAX_FILES: {MAX_FILES}")
     logger.info(f"MAX_BACKUPS: {MAX_BACKUPS}")
     logger.info(f"BACKUP_INTERVAL: {BACKUP_INTERVAL} секунд ({BACKUP_INTERVAL / 3600:.1f} часов)")
-    logger.info(f"MIN_FILE_SIZE: {MIN_FILE_SIZE} байт ({MIN_FILE_SIZE / 1048576:.2f} MB)")
     logger.info(f"SLOT_ID: {SLOT_ID}")
     logger.info(f"BASE_NAME: {get_base_name()}")
     logger.info("=" * 60)
