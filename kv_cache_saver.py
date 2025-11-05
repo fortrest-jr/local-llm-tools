@@ -194,11 +194,101 @@ def get_latest_cache_file() -> Optional[Path]:
     return cache_files[0]
 
 
-def load_cache(log: logging.Logger) -> bool:
-    cache_file = get_latest_cache_file()
-    if cache_file is None:
-        log.info(f"Файлы кеша для '{get_base_name()}' не найдены, пропуск загрузки")
-        return False
+def get_cache_files() -> List[Path]:
+    """Получает список всех файлов кеша в текущей сессии"""
+    cache_files = list(SAVE_DIR.glob(get_cache_pattern()))
+    cache_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+    return cache_files
+
+
+def choose_cache_file(log: logging.Logger, interactive: bool = True, timeout: Optional[float] = 10.0) -> Optional[Path]:
+    cache_files = get_cache_files()
+
+    if not cache_files:
+        if log:
+            log.info(f"Файлы кеша для '{get_base_name()}' не найдены")
+        else:
+            print(f"\nФайлы кеша для '{get_base_name()}' не найдены")
+        return None
+
+    if not interactive:
+        # Автоматически выбираем последний файл
+        return cache_files[0]
+
+    # Интерактивный выбор
+    print(f"\nНайдено файлов кеша для '{get_base_name()}': {len(cache_files)}")
+    for i, cache_file in enumerate(cache_files, 1):
+        file_size = cache_file.stat().st_size / (1024 * 1024)  # MB
+        mtime = datetime.fromtimestamp(cache_file.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+        print(f"  {i}. {cache_file.name} ({file_size:.2f} MB, {mtime})")
+    print(f"  {len(cache_files) + 1}. Пропустить загрузку")
+    if timeout is not None:
+        print(f"\nВыберите файл для загрузки ({int(timeout)} секунд на выбор, Enter для автовыбора последнего):")
+    else:
+        print(f"\nВыберите файл для загрузки (Enter для автовыбора последнего):")
+
+    global user_input_ready, user_choice
+    user_input_ready = False
+    user_choice = None
+
+    timer = None
+    if timeout is not None:
+
+        def timeout_handler():
+            global user_input_ready, user_choice
+            if not user_input_ready:
+                user_choice = "0"
+                user_input_ready = True
+
+        timer = threading.Timer(timeout, timeout_handler)
+        timer.daemon = True
+        timer.start()
+
+    try:
+        if sys.stdin.isatty() and hasattr(select, 'select'):
+            sys.stdout.write("> ")
+            sys.stdout.flush()
+            while not user_input_ready:
+                if select.select([sys.stdin], [], [], 0.5)[0]:
+                    line = sys.stdin.readline().strip()
+                    user_choice = line
+                    user_input_ready = True
+                    break
+        else:
+            line = input("> ").strip()
+            user_choice = line
+            user_input_ready = True
+    except (EOFError, KeyboardInterrupt):
+        user_choice = "0"
+        user_input_ready = True
+
+    if timer is not None:
+        timer.cancel()
+
+    choice = user_choice if user_choice else "0"
+
+    if choice == "0" or not choice:
+        selected = cache_files[0]
+        print(f"\nАвтоматически выбран последний файл: {selected.name}")
+        return selected
+    elif choice.isdigit() and 1 <= int(choice) <= len(cache_files):
+        selected = cache_files[int(choice) - 1]
+        print(f"\nВыбран файл: {selected.name}")
+        return selected
+    elif choice == str(len(cache_files) + 1):
+        print("\nЗагрузка пропущена")
+        return None
+    else:
+        try:
+            selected = cache_files[int(choice) - 1]
+            print(f"\nВыбран файл: {selected.name}")
+            return selected
+        except (ValueError, IndexError):
+            print("\nНеверный выбор, загрузка пропущена")
+            return None
+
+
+def load_cache_from_file(log: logging.Logger, cache_file: Path) -> bool:
     log.info(f"Загрузка кеша из файла: {cache_file.name}")
     try:
         payload = {"filename": str(cache_file.name)}
@@ -213,6 +303,13 @@ def load_cache(log: logging.Logger) -> bool:
     except Exception as e:
         log.error(f"Ошибка при загрузке кеша: {e}", exc_info=True)
         return False
+
+
+def load_cache(log: logging.Logger, interactive: bool = True) -> bool:
+    cache_file = choose_cache_file(log, interactive=interactive)
+    if cache_file is None:
+        return False
+    return load_cache_from_file(log, cache_file)
 
 
 def rotate_cache_files(log: logging.Logger):
@@ -446,9 +543,17 @@ def process_command(command: str, log: logging.Logger) -> None:
             log.info(f"Бекап успешно создан с именем '{name}'")
         else:
             log.error(f"Не удалось создать бекап с именем '{name}'")
+    elif cmd == "restore":
+        log.info("Загрузка кеша...")
+        cache_file = choose_cache_file(log, interactive=True, timeout=None)
+        if cache_file is not None:
+            load_cache_from_file(log, cache_file)
+        else:
+            log.info("Загрузка кеша отменена")
     elif cmd == "help":
         log.info("Доступные команды:")
         log.info("  backup <name> - создать бекап последнего кеша с указанным именем")
+        log.info("  restore - загрузить кеш из файла (с выбором)")
         log.info("  help - показать эту справку")
     else:
         log.warning(f"Неизвестная команда: {cmd}. Введите 'help' для справки")
@@ -489,7 +594,10 @@ def main():
     if not wait_for_server(logger):
         logger.error("Не удалось подключиться к серверу, завершение работы")
         sys.exit(1)
-    load_cache(logger)
+    # Предлагаем выбор кеша для загрузки при старте (10 секунд на выбор)
+    cache_file = choose_cache_file(logger, interactive=True, timeout=10.0)
+    if cache_file is not None:
+        load_cache_from_file(logger, cache_file)
     logger.info(f"Начало периодического сохранения (интервал: {SAVE_INTERVAL}с)")
     logger.info(f"Бекапы будут создаваться раз в {BACKUP_INTERVAL}с ({BACKUP_INTERVAL / 3600:.1f} часов)")
     logger.info("Для создания бекапа вручную введите: backup <name>")
