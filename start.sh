@@ -13,6 +13,23 @@ fi
 
 MODEL_PATH="$1"
 
+# Загружаем команду для llama из локального файла конфигурации
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LLAMA_CONFIG_FILE="$SCRIPT_DIR/llama_command.local.sh"
+
+if [ ! -f "$LLAMA_CONFIG_FILE" ]; then
+    echo "Ошибка: файл $LLAMA_CONFIG_FILE не найден"
+    echo "Создайте файл с переменной LLAMA_COMMAND"
+    exit 1
+fi
+
+source "$LLAMA_CONFIG_FILE"
+
+if [ -z "$LLAMA_COMMAND" ]; then
+    echo "Ошибка: переменная LLAMA_COMMAND не определена в файле $LLAMA_CONFIG_FILE"
+    exit 1
+fi
+
 # Скрипт для graceful shutdown всех сессий
 CLOSE_SCRIPT='
 for session in kv_cache_saver sillytavern llama; do
@@ -36,11 +53,11 @@ termux-notification \
 
 termux-wake-lock
 
-tmux new -d -s llama "# ВАШУ КОМАНДУ LLAMA.CPP С АРГУМЕНТОМ  ЗАМЕНИТЕ ЗДЕСЬ -m \"$MODEL_PATH\"
+tmux new -d -s llama "$LLAMA_COMMAND"
 
 tmux new -d -s sillytavern ~/SillyTavern/start.sh
 
-tmux new -d -s kv_cache_saver "python ~/local-llm-tools/kv_cache_saver.py"
+tmux new -d -s kv_cache_saver "python $SCRIPT_DIR/kv_cache_saver.py"
 
 tmux attach -t kv_cache_saver
 
