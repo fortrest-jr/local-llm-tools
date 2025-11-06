@@ -13,10 +13,26 @@ fi
 
 MODEL_PATH="$1"
 
+# Скрипт для graceful shutdown всех сессий
+CLOSE_SCRIPT='
+for session in kv_cache_saver sillytavern llama; do
+    if tmux has-session -t "$session" 2>/dev/null; then
+        tmux send-keys -t "$session" C-c
+    fi
+done
+termux-notification-remove llm-stack
+termux-wake-unlock
+'
+
 termux-notification \
     --id "llm-stack" \
     --title "Запуск LLM стека" \
-    --content "Запуск llama.cpp, sillytavern и kv_cache_saver..."
+    --content "Запуск llama.cpp, sillytavern и kv_cache_saver..." \
+    --button1 "close" \
+    --button1-action "bash -c '$CLOSE_SCRIPT'" \
+    --button2 "kill" \
+    --button2-action "bash -c 'tmux kill-server; termux-notification-remove llm-stack; termux-wake-unlock'" \
+    --ongoing
 
 termux-wake-lock
 
