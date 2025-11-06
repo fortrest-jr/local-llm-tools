@@ -78,7 +78,7 @@ def get_available_base_names() -> List[str]:
         if "_slot" in name:
             base_name = name.split("_slot")[0]
             if base_name:
-            base_names.add(base_name)
+                base_names.add(base_name)
     return sorted(
         list(base_names),
         key=lambda x: max((f.stat().st_mtime for f in SAVE_DIR.glob(f"{x}_slot*_*.bin") if f.exists()), default=0),
@@ -415,25 +415,25 @@ def load_cache(log: logging.Logger, interactive: bool = True) -> bool:
     """Загружает сохраненные слоты для выбранного timestamp"""
     # Получаем все файлы кеша для текущей сессии
     cache_files = get_cache_files()
-    
+
     if not cache_files:
         log.info(f"Файлы кеша для сессии '{get_base_name()}' не найдены")
         return False
-    
+
     # Группируем файлы по timestamp (времени сохранения)
     timestamp_groups: dict[str, List[Path]] = {}
-    
+
     for cache_file in cache_files:
         timestamp = extract_timestamp_from_filename(cache_file.name)
         if timestamp is not None:
             if timestamp not in timestamp_groups:
                 timestamp_groups[timestamp] = []
             timestamp_groups[timestamp].append(cache_file)
-    
+
     if not timestamp_groups:
         log.warning(f"Не удалось определить timestamp из файлов кеша для сессии '{get_base_name()}'")
         return False
-    
+
     if interactive:
         # Интерактивный выбор: показываем файлы сгруппированные по времени сохранения
         selected_timestamp = load_cache_interactive(log, timestamp_groups)
@@ -442,28 +442,28 @@ def load_cache(log: logging.Logger, interactive: bool = True) -> bool:
     else:
         # Автоматическая загрузка: выбираем самое последнее сохранение (самый новый timestamp)
         selected_timestamp = max(timestamp_groups.keys())
-    
+
     # Загружаем только те слоты, для которых есть файлы с выбранным timestamp
     files_to_load = timestamp_groups[selected_timestamp]
-    
+
     # Форматируем timestamp для отображения
     try:
         dt = datetime.strptime(selected_timestamp, "%Y%m%d%H%M%S")
         formatted_time = dt.strftime("%Y-%m-%d %H:%M:%S")
     except ValueError:
         formatted_time = selected_timestamp
-    
+
     log.info(f"Загрузка сохранения от {formatted_time} ({len(files_to_load)} файлов)")
     success_count = 0
-    loaded_slots = []
-    
+    loaded_slots: List[int] = []
+
     for cache_file in files_to_load:
         slot_id = extract_slot_id_from_filename(cache_file.name)
         if slot_id is not None:
             if load_cache_from_file(log, cache_file, slot_id):
                 success_count += 1
                 loaded_slots.append(slot_id)
-    
+
     log.info(f"Успешно загружено {success_count} из {len(files_to_load)} файлов (слоты: {sorted(loaded_slots)})")
     return success_count > 0
 
@@ -491,7 +491,7 @@ def load_cache_interactive(log: logging.Logger, timestamp_groups: dict[str, List
             formatted_time = timestamp
 
         # Получаем список слотов для этого timestamp
-        slots = []
+        slots: List[int] = []
         for cache_file in files:
             slot_id = extract_slot_id_from_filename(cache_file.name)
             if slot_id is not None:
@@ -531,13 +531,13 @@ def load_cache_interactive(log: logging.Logger, timestamp_groups: dict[str, List
                 formatted_time = timestamp
 
             # Получаем список слотов для этого бекапа
-            slots = []
+            backup_slots: List[int] = []
             for backup_file in files:
                 backup_name_without_prefix = backup_file.name.replace("backup_", "")
                 slot_id = extract_slot_id_from_filename(backup_name_without_prefix)
                 if slot_id is not None:
-                    slots.append(slot_id)
-            slots_str = ", ".join(map(str, sorted(slots))) if slots else "неизвестно"
+                    backup_slots.append(slot_id)
+            slots_str = ", ".join(map(str, sorted(backup_slots))) if backup_slots else "неизвестно"
 
             print(f"  {group_index}. Бекап от {formatted_time} ({len(files)} файлов, слоты: {slots_str})")
             timestamp_map.append(timestamp)
@@ -592,6 +592,41 @@ def get_latest_backup() -> Optional[Path]:
         return None
     backup_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
     return backup_files[0]
+
+
+def get_slots_with_latest_timestamp(log: logging.Logger) -> List[int]:
+    """Получает список слотов, для которых есть кеш с последним (самым новым) таймстемпом"""
+    cache_files = get_cache_files()
+    if not cache_files:
+        log.debug("Нет файлов кеша для определения последнего таймстемпа")
+        return []
+
+    # Группируем файлы по timestamp
+    timestamp_groups: dict[str, List[Path]] = {}
+    for cache_file in cache_files:
+        timestamp = extract_timestamp_from_filename(cache_file.name)
+        if timestamp is not None:
+            if timestamp not in timestamp_groups:
+                timestamp_groups[timestamp] = []
+            timestamp_groups[timestamp].append(cache_file)
+
+    if not timestamp_groups:
+        log.debug("Не удалось определить timestamp из файлов кеша")
+        return []
+
+    # Находим последний (самый новый) timestamp
+    latest_timestamp = max(timestamp_groups.keys())
+
+    # Получаем список слотов для этого timestamp
+    files_with_latest_timestamp = timestamp_groups[latest_timestamp]
+    slots: List[int] = []
+    for cache_file in files_with_latest_timestamp:
+        slot_id = extract_slot_id_from_filename(cache_file.name)
+        if slot_id is not None:
+            slots.append(slot_id)
+
+    # Убираем дубликаты и сортируем
+    return sorted(list(set(slots)))
 
 
 def get_file_hash(file_path: Path) -> str:
@@ -742,7 +777,7 @@ def save_cache(log: logging.Logger) -> bool:
     slots_with_data = get_all_slots_with_data(log)
     if not slots_with_data:
         log.debug("Нет слотов с данными для сохранения")
-            return False
+        return False
 
     log.info(f"Найдено {len(slots_with_data)} слотов с данными для сохранения: {slots_with_data}")
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
@@ -752,23 +787,23 @@ def save_cache(log: logging.Logger) -> bool:
         filename = f"{get_base_name()}_slot{slot_id}_{timestamp}.bin"
         log.info(f"Сохранение кеша слота {slot_id} в файл: {filename}")
         try:
-        payload = {"filename": filename}
+            payload = {"filename": filename}
             url = f"{LLAMA_URL}/slots/{slot_id}?action=save"
-        response = requests.post(url, json=payload, timeout=300)
-        if response.status_code != 200:
+            response = requests.post(url, json=payload, timeout=300)
+            if response.status_code != 200:
                 log.error(f"Ошибка сохранения кеша слота {slot_id}: статус {response.status_code}, {response.text}")
                 continue
 
-        # Проверяем, что файл создан
-        cache_file_path = SAVE_DIR / filename
-        if not cache_file_path.exists():
-            log.warning(f"Файл {filename} не найден после сохранения")
+            # Проверяем, что файл создан
+            cache_file_path = SAVE_DIR / filename
+            if not cache_file_path.exists():
+                log.warning(f"Файл {filename} не найден после сохранения")
                 continue
 
-        file_size = cache_file_path.stat().st_size
+            file_size = cache_file_path.stat().st_size
             log.info(f"Кеш слота {slot_id} успешно сохранен в {filename} (размер: {file_size} байт)")
             success_count += 1
-    except Exception as e:
+        except Exception as e:
             log.error(f"Ошибка при сохранении кеша слота {slot_id}: {e}", exc_info=True)
 
     if success_count > 0:
@@ -778,59 +813,108 @@ def save_cache(log: logging.Logger) -> bool:
     return success_count > 0
 
 
+def get_cache_file_for_timestamp(slot_id: int, timestamp: str) -> Optional[Path]:
+    """Получает файл кеша для слота с указанным таймстемпом"""
+    cache_files = get_cache_files(slot_id)
+    for cache_file in cache_files:
+        file_timestamp = extract_timestamp_from_filename(cache_file.name)
+        if file_timestamp == timestamp:
+            return cache_file
+    return None
+
+
 def create_backup_with_name(log: logging.Logger, name: str) -> bool:
-    """Создает бекапы последних сохраненных кешей для всех слотов (бекапы - копии уже валидных кешей)"""
-    # Получаем последние файлы для каждого слота
-    slots_with_data = get_all_slots_with_data(log)
-    if not slots_with_data:
-        log.warning("Нет слотов с данными для создания бекапа")
+    """Создает бекапы для всех слотов с кешем на последний таймстемп (бекапы - копии уже валидных кешей)
+
+    Args:
+        log: Логгер
+        name: Имя для префикса бекапа
+    """
+    # Получаем слоты с кешем на последний таймстемп
+    slots = get_slots_with_latest_timestamp(log)
+    if not slots:
+        log.warning("Нет слотов с кешем на последний таймстемп для создания бекапа")
         return False
 
+    # Получаем последний таймстемп
+    cache_files = get_cache_files()
+    timestamp_groups: dict[str, List[Path]] = {}
+    for cache_file in cache_files:
+        timestamp = extract_timestamp_from_filename(cache_file.name)
+        if timestamp is not None:
+            if timestamp not in timestamp_groups:
+                timestamp_groups[timestamp] = []
+            timestamp_groups[timestamp].append(cache_file)
+
+    if not timestamp_groups:
+        log.warning("Не удалось определить таймстемпы из файлов кеша")
+        return False
+
+    latest_timestamp = max(timestamp_groups.keys())
+
     success_count = 0
-    for slot_id in slots_with_data:
-        latest_cache = get_latest_cache_file(slot_id)
-        if latest_cache is None:
-            log.debug(f"Нет файлов кеша для слота {slot_id} для создания бекапа")
+    for slot_id in slots:
+        # Получаем файл кеша для слота с последним таймстемпом
+        cache_file = get_cache_file_for_timestamp(slot_id, latest_timestamp)
+        if cache_file is None:
+            log.debug(f"Не найден файл кеша для слота {slot_id} с таймстемпом {latest_timestamp}")
             continue
 
-    # Берем имя кеш-файла и формируем имя: {name}_{cache_name}
-    cache_name = latest_cache.name
-    backup_filename = f"{name}_{cache_name}"
-    backup_path = SAVE_DIR / backup_filename
+        # Берем имя кеш-файла и формируем имя: {name}_{cache_name}
+        cache_name = cache_file.name
+        backup_filename = f"{name}_{cache_name}"
+        backup_path = SAVE_DIR / backup_filename
 
-    try:
-        shutil.copy2(latest_cache, backup_path)
-        file_size = backup_path.stat().st_size
+        try:
+            shutil.copy2(cache_file, backup_path)
+            file_size = backup_path.stat().st_size
 
-        # Вычисляем и сохраняем хеш для быстрого сравнения в будущем
-        log.debug(f"Вычисление хеша для бекапа {backup_filename}...")
-        get_file_hash_cached(backup_path)
+            # Вычисляем и сохраняем хеш для быстрого сравнения в будущем
+            log.debug(f"Вычисление хеша для бекапа {backup_filename}...")
+            get_file_hash_cached(backup_path)
 
             log.info(f"Создан бекап для слота {slot_id}: {backup_filename} (размер: {file_size} байт)")
             success_count += 1
-    except Exception as e:
+        except Exception as e:
             log.error(f"Ошибка при создании бекапа для слота {slot_id}: {e}", exc_info=True)
-        if backup_path.exists():
-            try:
-                backup_path.unlink(missing_ok=True)
-            except Exception:
-                pass
+            if backup_path.exists():
+                try:
+                    backup_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
 
     return success_count > 0
 
 
 def create_backup(log: logging.Logger) -> bool:
-    """Создает бекапы для всех слотов с данными, если они изменились"""
-    slots_with_data = get_all_slots_with_data(log)
-    if not slots_with_data:
-        log.debug("Нет слотов с данными для создания бекапа")
+    """Создает бекапы для всех слотов с кешем на последний таймстемп, если есть изменения хотя бы в одном слоте"""
+    # Получаем слоты с кешем на последний таймстемп
+    slots_with_latest_timestamp = get_slots_with_latest_timestamp(log)
+    if not slots_with_latest_timestamp:
+        log.debug("Нет слотов с кешем на последний таймстемп для создания бекапа")
         return False
 
-    # Проверяем, нужно ли создавать бекапы (сравниваем с последними бекапами)
-    slots_to_backup = []
-    for slot_id in slots_with_data:
-        latest_cache = get_latest_cache_file(slot_id)
-        if latest_cache is None:
+    # Получаем последний таймстемп
+    cache_files = get_cache_files()
+    timestamp_groups: dict[str, List[Path]] = {}
+    for cache_file in cache_files:
+        timestamp = extract_timestamp_from_filename(cache_file.name)
+        if timestamp is not None:
+            if timestamp not in timestamp_groups:
+                timestamp_groups[timestamp] = []
+            timestamp_groups[timestamp].append(cache_file)
+
+    if not timestamp_groups:
+        log.debug("Не удалось определить таймстемпы из файлов кеша")
+        return False
+
+    latest_timestamp = max(timestamp_groups.keys())
+
+    # Проверяем, есть ли изменения хотя бы в одном слоте
+    has_changes = False
+    for slot_id in slots_with_latest_timestamp:
+        cache_file = get_cache_file_for_timestamp(slot_id, latest_timestamp)
+        if cache_file is None:
             continue
 
         # Ищем последний бекап для этого слота
@@ -839,22 +923,28 @@ def create_backup(log: logging.Logger) -> bool:
         if slot_backups:
             slot_backups.sort(key=lambda x: x.stat().st_mtime, reverse=True)
             latest_backup = slot_backups[0]
-        try:
-            latest_backup_hash = get_file_hash_cached(latest_backup)
-            latest_cache_hash = get_file_hash_cached(latest_cache)
-            if latest_backup_hash == latest_cache_hash:
-                    log.debug(f"Бекап для слота {slot_id} не создан: содержимое совпадает с последним бекапом")
-                    continue
-        except Exception as e:
-                log.debug(f"Ошибка при сравнении хешей для слота {slot_id}: {e}, создаем бекап")
+            try:
+                latest_backup_hash = get_file_hash_cached(latest_backup)
+                cache_hash = get_file_hash_cached(cache_file)
+                if latest_backup_hash != cache_hash:
+                    has_changes = True
+                    log.debug(f"Обнаружены изменения в слоте {slot_id}")
+                    break
+            except Exception as e:
+                log.debug(f"Ошибка при сравнении хешей для слота {slot_id}: {e}, считаем что есть изменения")
+                has_changes = True
+                break
+        else:
+            # Если нет бекапов для этого слота, значит есть изменения
+            has_changes = True
+            log.debug(f"Нет бекапов для слота {slot_id}, считаем что есть изменения")
+            break
 
-        slots_to_backup.append(slot_id)  # type: ignore
-
-    if not slots_to_backup:
+    if not has_changes:
         log.info("Бекапы не созданы: содержимое всех слотов совпадает с последними бекапами")
         return False
 
-    # Используем общую функцию с именем "backup"
+    # Если есть изменения, создаем бекапы для всех слотов с последним таймстемпом
     if create_backup_with_name(log, "backup"):
         rotate_backups(log)
         return True
@@ -880,8 +970,10 @@ def process_command(command: str, log: logging.Logger) -> None:
             log.warning("Имя может содержать только буквы, цифры, подчеркивания и дефисы")
             return
         log.info(f"Создание бекапа с именем '{name}'...")
+        # Функция автоматически использует слоты с кешем на последний таймстемп
+        slots_count = len(get_slots_with_latest_timestamp(log))
         if create_backup_with_name(log, name):
-            log.info(f"Бекап успешно создан с именем '{name}'")
+            log.info(f"Бекап успешно создан с именем '{name}' для {slots_count} слотов")
         else:
             log.error(f"Не удалось создать бекап с именем '{name}'")
     elif cmd == "load":
