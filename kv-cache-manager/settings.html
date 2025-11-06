@@ -1,0 +1,79 @@
+<div id="kv-cache-manager-settings">
+    <div class="kv-cache-manager-section">
+        <h3>Автоматическое сохранение</h3>
+        <div class="kv-cache-manager-field">
+            <label>
+                <input type="checkbox" id="kv-cache-enabled" />
+                Включить автосохранение
+            </label>
+        </div>
+        <div class="kv-cache-manager-field">
+            <label>
+                Сохранять каждые N сообщений:
+                <input type="number" id="kv-cache-save-interval" min="1" value="5" />
+            </label>
+        </div>
+        <div class="kv-cache-manager-field">
+            <span id="kv-cache-next-save">Следующее сохранение через: - сообщений</span>
+        </div>
+    </div>
+
+    <div class="kv-cache-manager-section">
+        <h3>Управление кешем</h3>
+        <div class="kv-cache-manager-field">
+            <label>
+                Имя для сохранения:
+                <input type="text" id="kv-cache-save-name" placeholder="Введите имя" />
+            </label>
+            <button id="kv-cache-save-button" class="menu_button">Сохранить с именем</button>
+        </div>
+        <div class="kv-cache-manager-field">
+            <button id="kv-cache-load-button" class="menu_button">Загрузить кеш</button>
+        </div>
+    </div>
+
+    <div class="kv-cache-manager-section">
+        <h3>Настройки ротации</h3>
+        <div class="kv-cache-manager-field">
+            <label>
+                Максимум файлов на сессию (только для автосохранений):
+                <input type="number" id="kv-cache-max-files" min="1" value="10" />
+            </label>
+        </div>
+    </div>
+
+    <div class="kv-cache-manager-section">
+        <h3>Статистика и последнее сохранение</h3>
+        <div id="kv-cache-last-save" class="kv-cache-manager-info">
+            <p><strong>Последнее сохранение:</strong></p>
+            <p id="kv-cache-last-save-info">Нет данных</p>
+        </div>
+        <div id="kv-cache-statistics" class="kv-cache-manager-info">
+            <p><strong>Статистика:</strong></p>
+            <p id="kv-cache-stats-info">Нет данных</p>
+        </div>
+    </div>
+
+    <div class="kv-cache-manager-section">
+        <h3>Дополнительные настройки</h3>
+        <div class="kv-cache-manager-field">
+            <label>
+                <input type="checkbox" id="kv-cache-auto-load" />
+                Автозагрузка при переключении на чат
+            </label>
+        </div>
+        <div class="kv-cache-manager-field">
+            <label>
+                <input type="checkbox" id="kv-cache-show-notifications" />
+                Показывать уведомления
+            </label>
+        </div>
+        <div class="kv-cache-manager-field">
+            <label>
+                <input type="checkbox" id="kv-cache-validate" />
+                Проверять валидность кеша
+            </label>
+        </div>
+    </div>
+</div>
+

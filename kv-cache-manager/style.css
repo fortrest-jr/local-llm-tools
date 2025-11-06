@@ -1,0 +1,92 @@
+#kv-cache-manager-settings {
+    padding: 20px;
+    max-width: 800px;
+}
+
+.kv-cache-manager-section {
+    margin-bottom: 30px;
+    padding: 15px;
+    background: var(--SmartThemeBorderColor, #e0e0e0);
+    border-radius: 8px;
+}
+
+.kv-cache-manager-section h3 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    color: var(--SmartThemeBodyColor, #333);
+    font-size: 1.2em;
+    border-bottom: 2px solid var(--SmartThemeBorderColor, #ccc);
+    padding-bottom: 8px;
+}
+
+.kv-cache-manager-field {
+    margin-bottom: 15px;
+}
+
+.kv-cache-manager-field label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+    color: var(--SmartThemeBodyColor, #333);
+}
+
+.kv-cache-manager-field input[type="checkbox"] {
+    margin-right: 8px;
+}
+
+.kv-cache-manager-field input[type="number"],
+.kv-cache-manager-field input[type="text"] {
+    padding: 6px 10px;
+    border: 1px solid var(--SmartThemeBorderColor, #ccc);
+    border-radius: 4px;
+    background: var(--SmartThemeBodyColor, #fff);
+    color: var(--SmartThemeBodyColor, #333);
+    font-size: 14px;
+    width: 200px;
+}
+
+.kv-cache-manager-field button {
+    margin-top: 10px;
+    padding: 8px 16px;
+    background: var(--SmartThemeBlurTintColor, #4a90e2);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background 0.2s;
+}
+
+.kv-cache-manager-field button:hover {
+    background: var(--SmartThemeBlurTintColor, #357abd);
+}
+
+.kv-cache-manager-field button:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+}
+
+.kv-cache-manager-info {
+    margin-top: 15px;
+    padding: 10px;
+    background: var(--SmartThemeBodyColor, #f5f5f5);
+    border-radius: 4px;
+    border-left: 3px solid var(--SmartThemeBlurTintColor, #4a90e2);
+}
+
+.kv-cache-manager-info p {
+    margin: 5px 0;
+    color: var(--SmartThemeBodyColor, #333);
+    font-size: 14px;
+}
+
+.kv-cache-manager-info strong {
+    color: var(--SmartThemeBlurTintColor, #4a90e2);
+}
+
+#kv-cache-next-save {
+    color: var(--SmartThemeBlurTintColor, #4a90e2);
+    font-weight: 500;
+}
+
