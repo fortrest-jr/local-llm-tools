@@ -600,7 +600,7 @@ def process_command(command: str, log: logging.Logger) -> None:
             log.info(f"Бекап успешно создан с именем '{name}'")
         else:
             log.error(f"Не удалось создать бекап с именем '{name}'")
-    elif cmd == "restore":
+    elif cmd == "load":
         log.info("Загрузка кеша...")
         cache_file = choose_cache_file(log, interactive=True, timeout=None)
         if cache_file is not None:
