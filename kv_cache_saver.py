@@ -24,6 +24,7 @@ BACKUP_INTERVAL = int(os.getenv("KV_BACKUP_INTERVAL", "3600"))  # 1 час по 
 SLOT_ID = int(os.getenv("LLAMA_SLOT_ID", "3"))
 BASE_NAME_ENV = os.getenv("KV_BASE_NAME")
 LOG_FILE = SAVE_DIR / "kv_cache_saver.log"
+INITIAL_TIMEOUT = int(os.getenv("KV_INITIAL_TIMEOUT", "30"))  # таймаут выборов при запуске скрипта
 
 _base_name_var = ""
 _cache_pattern_var = ""
@@ -89,7 +90,7 @@ def choose_base_name() -> None:
         files_count = len(list(SAVE_DIR.glob(f"{name}_*.bin")))
         print(f"  {i}. {name} ({files_count} файлов)")
     print(f"  {len(available_names) + 1}. Добавить новую")
-    print("\nВыберите вариант (30 секунд на выбор, Enter для автовыбора последней):")
+    print(f"\nВыберите вариант ({INITIAL_TIMEOUT} секунд на выбор, Enter для автовыбора последней):")
 
     global user_input_ready, user_choice
     user_input_ready = False
@@ -101,7 +102,7 @@ def choose_base_name() -> None:
             user_choice = "0"
             user_input_ready = True
 
-    timer = threading.Timer(30.0, timeout_handler)
+    timer = threading.Timer(INITIAL_TIMEOUT, timeout_handler)
     timer.daemon = True
     timer.start()
 
@@ -640,8 +641,7 @@ def main():
     if not wait_for_server(logger):
         logger.error("Не удалось подключиться к серверу, завершение работы")
         sys.exit(1)
-    # Предлагаем выбор кеша для загрузки при старте (10 секунд на выбор)
-    cache_file = choose_cache_file(logger, interactive=True, timeout=10.0)
+    cache_file = choose_cache_file(logger, interactive=True, timeout=INITIAL_TIMEOUT)
     if cache_file is not None:
         load_cache_from_file(logger, cache_file)
     logger.info(f"Начало периодического сохранения (интервал: {SAVE_INTERVAL}с)")
