@@ -35,6 +35,7 @@ CLOSE_SCRIPT='
 for session in kv_cache_saver sillytavern llama; do
     if tmux has-session -t "$session" 2>/dev/null; then
         tmux send-keys -t "$session" C-c
+        sleep 2
     fi
 done
 termux-notification-remove llm-stack
