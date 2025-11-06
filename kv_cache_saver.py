@@ -28,6 +28,7 @@ INITIAL_TIMEOUT = int(os.getenv("KV_INITIAL_TIMEOUT", "30"))  # таймаут �
 
 _base_name_var = ""
 _cache_pattern_var = ""
+_slot_id_var = SLOT_ID  # Изменяемая переменная для слота
 
 
 def get_base_name() -> str:
@@ -38,6 +39,15 @@ def set_base_name(value: str) -> None:
     global _base_name_var, _cache_pattern_var
     _base_name_var = value
     _cache_pattern_var = f"{value}_*.bin"
+
+
+def get_slot_id() -> int:
+    return _slot_id_var
+
+
+def set_slot_id(value: int) -> None:
+    global _slot_id_var
+    _slot_id_var = value
 
 
 def get_cache_pattern() -> str:
@@ -339,7 +349,7 @@ def load_cache_from_file(log: logging.Logger, cache_file: Path) -> bool:
     log.info(f"Загрузка кеша из файла: {cache_file.name}")
     try:
         payload = {"filename": str(cache_file.name)}
-        url = f"{LLAMA_URL}/slots/{SLOT_ID}?action=restore"
+        url = f"{LLAMA_URL}/slots/{get_slot_id()}?action=restore"
         response = requests.post(url, json=payload, timeout=300)
         if response.status_code == 200:
             log.info(f"Кеш успешно загружен из {cache_file.name}")
@@ -430,7 +440,7 @@ def get_file_hash_cached(file_path: Path) -> str:
 def get_slot_info(log: logging.Logger) -> Optional[dict[str, Any]]:
     """Получает информацию о слоте через API"""
     try:
-        url = f"{LLAMA_URL}/slots/{SLOT_ID}"
+        url = f"{LLAMA_URL}/slots/{get_slot_id()}"
         response = requests.get(url, timeout=10)
         if response.status_code == 200:
             return response.json()
@@ -490,7 +500,7 @@ def save_cache(log: logging.Logger) -> bool:
             return False
 
         payload = {"filename": filename}
-        url = f"{LLAMA_URL}/slots/{SLOT_ID}?action=save"
+        url = f"{LLAMA_URL}/slots/{get_slot_id()}?action=save"
         response = requests.post(url, json=payload, timeout=300)
         if response.status_code != 200:
             log.error(f"Ошибка сохранения кеша: статус {response.status_code}, {response.text}")
@@ -597,10 +607,22 @@ def process_command(command: str, log: logging.Logger) -> None:
             load_cache_from_file(log, cache_file)
         else:
             log.info("Загрузка кеша отменена")
+    elif cmd == "slot" and len(parts) > 1:
+        try:
+            new_slot_id = int(parts[1].strip())
+            if new_slot_id < 0:
+                log.warning("Номер слота должен быть неотрицательным числом")
+                return
+            old_slot_id = get_slot_id()
+            set_slot_id(new_slot_id)
+            log.info(f"Слот изменен с {old_slot_id} на {new_slot_id}")
+        except ValueError:
+            log.warning("Номер слота должен быть числом. Использование: slot <номер>")
     elif cmd == "help":
         log.info("Доступные команды:")
         log.info("  backup <name> - создать бекап последнего кеша с указанным именем")
-        log.info("  restore - загрузить кеш из файла (с выбором)")
+        log.info("  load - загрузить кеш из файла (с выбором)")
+        log.info("  slot <номер> - сменить номер слота")
         log.info("  help - показать эту справку")
     else:
         log.warning(f"Неизвестная команда: {cmd}. Введите 'help' для справки")
