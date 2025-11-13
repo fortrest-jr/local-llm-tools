@@ -32,10 +32,9 @@ fi
 
 # Скрипт для graceful shutdown всех сессий
 CLOSE_SCRIPT='
-for session in kv_cache_saver sillytavern llama; do
+for session in sillytavern llama; do
     if tmux has-session -t "$session" 2>/dev/null; then
         tmux send-keys -t "$session" C-c
-        sleep 2
     fi
 done
 termux-notification-remove llm-stack
@@ -44,8 +43,7 @@ termux-wake-unlock
 
 termux-notification \
     --id "llm-stack" \
-    --title "Запуск LLM стека" \
-    --content "Запуск llama.cpp, sillytavern и kv_cache_saver..." \
+    --title "llama.cpp + SillyTavern" \
     --button1 "close" \
     --button1-action "bash -c '$CLOSE_SCRIPT'" \
     --button2 "kill" \
@@ -56,9 +54,7 @@ termux-wake-lock
 
 tmux new -d -s llama "$LLAMA_COMMAND"
 
-tmux new -d -s sillytavern ~/SillyTavern/start.sh
+tmux new -d -As sillytavern ~/SillyTavern/start.sh
 
-tmux new -d -s kv_cache_saver "python $SCRIPT_DIR/kv_cache_saver.py"
-
-tmux attach -t kv_cache_saver
+tmux attach -t llama
 
