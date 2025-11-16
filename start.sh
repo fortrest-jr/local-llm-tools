@@ -36,13 +36,16 @@ start_sessions() {
     tmux has-session -t sillytavern 2>/dev/null || tmux new-session -d -s sillytavern ~/SillyTavern/start.sh
 }
 
+# Экранируем команду для безопасной передачи в JSON/строку
+ESCAPED_LLAMA_COMMAND=$(printf '%q' "$LLAMA_COMMAND")
+
 termux-notification \
     --id "llm-stack" \
     --title "llama.cpp + SillyTavern" \
     --button1 "Kill" \
     --button1-action "bash -c 'tmux kill-server; termux-wake-unlock; termux-notification-remove llm-stack'" \
     --button2 "Restart" \
-    --button2-action "bash -c '$(declare -f start_sessions); tmux kill-server; sleep 2; start_sessions '\"$LLAMA_COMMAND\"'" \
+    --button2-action "bash -c '$(declare -f start_sessions); tmux kill-server; sleep 2; start_sessions $ESCAPED_LLAMA_COMMAND'" \
     --ongoing
 
 termux-wake-lock
