@@ -30,6 +30,8 @@ if [ -z "$LLAMA_COMMAND" ]; then
     exit 1
 fi
 
+export LLAMA_COMMAND
+
 # Функции для управления сессиями
 start_sessions() {
     tmux new -d -s llama "$LLAMA_COMMAND"
