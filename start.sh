@@ -40,10 +40,9 @@ start_sessions() {
 termux-notification \
     --id "llm-stack" \
     --title "llama.cpp + SillyTavern" \
-    --content "Модель: $(basename "$MODEL_PATH")" \
-    --button1 "Остановить" \
-    --button1-action "bash -c 'tmux kill-server; termux-notification-remove llm-stack; termux-wake-unlock'" \
-    --button2 "Перезапуск" \
+    --button1 "Kill" \
+    --button1-action "bash -c 'tmux kill-server; termux-wake-unlock; termux-notification-remove llm-stack'" \
+    --button2 "Restart" \
     --button2-action "bash -c '$(declare -f start_sessions); tmux kill-server; sleep 2; start_sessions'" \
     --ongoing
 
