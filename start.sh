@@ -39,8 +39,8 @@ tmux has-session -t sillytavern 2>/dev/null || tmux new-session -d -s sillytaver
 termux-notification \
     --id "llm-stack" \
     --title "llama.cpp + SillyTavern" \
-    --button2 "kill" \
-    --button2-action "bash -c 'tmux kill-server; termux-notification-remove llm-stack; termux-wake-unlock'" \
+    --button1 "kill" \
+    --button1-action "bash -c 'tmux kill-server; termux-notification-remove llm-stack; termux-wake-unlock'" \
     --button2 "restart" \
     --button2-action "bash -c \"tmux kill-server; $MAIN_SCRIPT\"" \
     --ongoing
