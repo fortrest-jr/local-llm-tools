@@ -3,7 +3,7 @@
 # Скрипт для запуска LLM стека в Termux с tmux
 # Использование: ./start_llm_stack.sh <путь_к_модели>
 
-set -eo pipefail
+set -exo pipefail
 
 if [ -z "$1" ]; then
     echo "Ошибка: не указан путь к модели"
@@ -31,30 +31,23 @@ if [ -z "$LLAMA_COMMAND" ]; then
 fi
 
 # Скрипт для graceful shutdown всех сессий
-CLOSE_SCRIPT='
-for session in sillytavern llama; do
-    if tmux has-session -t "$session" 2>/dev/null; then
-        tmux send-keys -t "$session" C-c
-    fi
-done
-termux-notification-remove llm-stack
-termux-wake-unlock
-'
+MAIN_SCRIPT="
+tmux new -d -s llama \"$LLAMA_COMMAND\"
+tmux has-session -t sillytavern 2>/dev/null || tmux new-session -d -s sillytavern $HOME/SillyTavern/start.sh
+"
 
 termux-notification \
     --id "llm-stack" \
     --title "llama.cpp + SillyTavern" \
-    --button1 "close" \
-    --button1-action "bash -c '$CLOSE_SCRIPT'" \
     --button2 "kill" \
     --button2-action "bash -c 'tmux kill-server; termux-notification-remove llm-stack; termux-wake-unlock'" \
+    --button2 "restart" \
+    --button2-action "bash -c \"tmux kill-server; $MAIN_SCRIPT\"" \
     --ongoing
 
 termux-wake-lock
 
-tmux new -d -s llama "$LLAMA_COMMAND"
-
-tmux new -d -As sillytavern ~/SillyTavern/start.sh
+$MAIN_SCRIPT
 
 tmux attach -t llama
 
