@@ -23,13 +23,14 @@ if [ ! -f "$LLAMA_CONFIG_FILE" ]; then
     exit 1
 fi
 
-if [ -z "$LLAMA_COMMAND" ]; then
-    echo "Ошибка: переменная LLAMA_COMMAND не определена в файле $LLAMA_CONFIG_FILE"
-    exit 1
-fi
-
 start_sessions() {
     source "$LLAMA_CONFIG_FILE"
+
+    if [ -z "$LLAMA_COMMAND" ]; then
+        echo "Ошибка: переменная LLAMA_COMMAND не определена в файле $LLAMA_CONFIG_FILE"
+        exit 1
+    fi
+    
     tmux new -d -s llama "$LLAMA_COMMAND"
     tmux has-session -t sillytavern 2>/dev/null || tmux new-session -d -s sillytavern ~/SillyTavern/start.sh
 }
