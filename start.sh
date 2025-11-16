@@ -46,5 +46,5 @@ termux-notification \
     --ongoing
 
 termux-wake-lock
-start_sessions $LLAMA_COMMAND
+start_sessions "$LLAMA_COMMAND"
 tmux attach -t llama
