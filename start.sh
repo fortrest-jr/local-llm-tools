@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Скрипт для запуска LLM стека в Termux с tmux
-# Использование: ./start_llm_stack.sh <путь_к_модели>
+# Использование: ./start.sh <путь_к_модели>
 
 set -exo pipefail
 
@@ -30,24 +30,23 @@ if [ -z "$LLAMA_COMMAND" ]; then
     exit 1
 fi
 
-# Скрипт для graceful shutdown всех сессий
-MAIN_SCRIPT="
-tmux new -d -s llama \"$LLAMA_COMMAND\"
-tmux has-session -t sillytavern 2>/dev/null || tmux new-session -d -s sillytavern $HOME/SillyTavern/start.sh
-"
+# Функции для управления сессиями
+start_sessions() {
+    tmux new -d -s llama "$LLAMA_COMMAND"
+    tmux has-session -t sillytavern 2>/dev/null || tmux new-session -d -s sillytavern ~/SillyTavern/start.sh
+}
 
+# Создаем уведомление с кнопками управления
 termux-notification \
     --id "llm-stack" \
     --title "llama.cpp + SillyTavern" \
-    --button1 "kill" \
+    --content "Модель: $(basename "$MODEL_PATH")" \
+    --button1 "Остановить" \
     --button1-action "bash -c 'tmux kill-server; termux-notification-remove llm-stack; termux-wake-unlock'" \
-    --button2 "restart" \
-    --button2-action "bash -c \"tmux kill-server; $MAIN_SCRIPT\"" \
+    --button2 "Перезапуск" \
+    --button2-action "bash -c '$(declare -f start_sessions); tmux kill-server; sleep 2; start_sessions'" \
     --ongoing
 
 termux-wake-lock
-
-$MAIN_SCRIPT
-
+start_sessions
 tmux attach -t llama
-
