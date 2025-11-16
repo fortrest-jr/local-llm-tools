@@ -45,7 +45,7 @@ termux-notification \
     --button1 "Kill" \
     --button1-action "bash -c 'tmux kill-server; termux-wake-unlock; termux-notification-remove llm-stack'" \
     --button2 "Restart" \
-    --button2-action "bash -c 'source ~/.bashrc; $(declare -f start_sessions); tmux kill-server; sleep 2; start_sessions $ESCAPED_LLAMA_COMMAND'" \
+    --button2-action "bash -c '$(declare -f start_sessions); tmux kill-server; sleep 2; KV_SAVE_DIR=$KV_SAVE_DIR start_sessions $ESCAPED_LLAMA_COMMAND'" \
     --ongoing
 
 termux-wake-lock
